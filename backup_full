@@ -1,0 +1,214 @@
+#!/usr/bin/env python3
+import argparse
+import datetime
+import sys
+import os
+import hashlib
+import stat
+import time
+
+def message(msg):
+    if not args.quiet:
+        print(msg)
+
+def do_func(func_str):
+    if not args.dryrun:
+        exec(func_str)
+    else:
+        message(func_str)
+
+def make_link(source, dest):
+    p=os.popen('readlink '+source)
+    target=p.read().strip()
+    p.close()
+    #Validate target as actually being part of the backup
+    relative=False
+    if not target.startswith(os.path.sep):
+        # Note: This test really won't work on windows!
+        relative=True
+        longtarget=os.path.join(os.path.dirname(source),target)
+    else:
+        longtarget=target # Absolute path
+    longtarget=os.path.abspath(longtarget)
+    if not longtarget.startswith(sourcefolder):
+        if args.force:
+          sig='WARNING'
+        else:
+          sig='ERROR'
+        message("{}: Link ".format(sig)+
+          "{} can't be backed up; target {} outside of backup space {}".format(
+            source, target, sourcefolder
+        ))
+        if args.force:
+            xit=4
+        else:
+            exit(4)
+    else:
+        #Rewrite absolute paths
+        if not relative:
+            newtarget=os.path.join(destfolder,longtarget[len(sourcefolder):])
+            #NOTE This will eliminate any .. folders in absolute paths - okay?
+        else:
+            newtarget=target
+        #Actually make the links!
+        do_func('os.symlink("{}","{}")'.format(newtarget,dest))
+        st=os.lstat(source)
+        do_func('os.lchown("{}",{},{})'.format(dest,st.st_uid,st.st_gid))
+        if args.verbose: message('{} (symlink)'.format(dest))
+
+def transfer_file(root,f,checksums=None):
+    if not root.startswith(sourcefolder):
+        raise RuntimeError(
+          'transfer_file: expected {} to begin with {}'.format(
+            root, sourcefolder
+          )
+        )
+    else:
+        root=root[len(sourcefolder):]
+    source=os.path.join(sourcefolder, root, f)
+    time_s=time.time()
+    st=os.lstat(source)
+    dest=os.path.join(destfolder, root, f)
+    if stat.S_ISLNK(st.st_mode):
+        make_link(source,dest)
+    else:
+        infile=open(source,'rb')
+        outfile=None
+        if not args.dryrun:
+            outfile=open(dest,'wb')
+        h=hashlib.sha256()
+        for data in infile.read(0x10000).decode(encoding='Latin1'):
+            # 64k blocks
+            h.update(data.encode(encoding='Latin1'))
+            if outfile:
+                outfile.write(data.encode(encoding='Latin1'))
+        if outfile:
+            outfile.close()
+        infile.close()
+        do_func('os.chmod("{}",{})'.format(dest, st.st_mode))
+        do_func('os.chown("{}",{},{})'.format(dest, st.st_uid, st.st_gid))
+
+        if args.verbose:
+            dur=time.time()-time_s
+            speed=st.st_size / dur
+            if speed>2**10:
+                if speed>2**20:
+                    if speed>2**30:
+                        speed=str(speed/2**30)+'Gi'
+                    else:
+                        speed=str(speed/2**20)+'Mi'
+                else:
+                    speed=str(speed/2**10)+'Ki'
+            else:
+                speed=str(speed)
+            message('{} {}B/s'.format(dest, speed))
+
+        if checksums:
+            checksums.write('{}  {}\n'.format(h.hexdigest(), source))
+        if args.verbose>=2:
+            print('{}  {}'.format(h.hexdigest(), source))
+
+def transfer_dir(root,d):
+    if not root.startswith(sourcefolder):
+        raise RuntimeError(
+          'transfer_dir: expected {} to begin with {}'.format(
+            root, sourcefolder
+          )
+        )
+    else:
+        root=root[len(sourcefolder):]
+    source=os.path.join(sourcefolder, root,d)
+    dest=os.path.join(destfolder, root, d)
+    st=os.lstat(source)
+    if stat.S_ISLNK(st.st_mode):
+        make_link(source,dest)
+    else:
+        do_func('os.mkdir("{}")'.format(dest))
+        do_func('os.chmod("{}",{})'.format(
+          dest, st.st_mode)
+        )
+        do_func('os.chown("{}",{},{})'.format(
+          dest, st.st_uid, st.st_gid
+        ))
+        if args.verbose: message('{} (dir)'.format(dest))
+
+
+p=argparse.ArgumentParser(
+  description="Backup specified folder to a mounted volume",
+  epilog="Error exit states:... 2 - Incorrect parameters;... 3 - Invalid "+
+    "target path;... 4 - Invalid link found; backup will be incomplete (to a "+
+    "greater or lesser extent depending on whether --force was used)"
+)
+p.add_argument('--verbose', '-v', action='count',
+  help="List files as they're backed up. With -vv also print ssh hashes."
+)
+p.add_argument('--quiet', '-q', action='store_true',
+  help='Don\'t even report the backup. Overrides --verbose'
+)
+p.add_argument('--dryrun', '-n', action='store_true',
+  help='Do a read-only run. Implies -v (unless --quiet is specified)'
+)
+p.add_argument('target', help='The folder to back up')
+p.add_argument('machine_id',
+  help='Name of the machine being backed up. '+
+    'Used as part of the backed-up directory name'
+)
+p.add_argument('--mount_point', default='/mnt',
+  help='Where the backup drive is mounted. Defaults to /mnt.'
+)
+p.add_argument('--force', '-f', action='store_true',
+  help='Demote fatal errors about bad links to warnings, and continue backup.'
+)
+args=p.parse_args()
+if args.quiet:
+    args.verbose=0
+if args.dryrun:
+    if not args.verbose:
+        args.verbose=1
+
+xit=0
+machine_id=args.machine_id
+sourcefolder=args.target
+backupfolder=os.path.join(args.mount_point,"backup_{:s}_{:%Y-%m-%d}".format(
+  machine_id, datetime.date.today()
+))
+destfolder=os.path.join(backupfolder,'data')
+
+if not os.path.isdir(sourcefolder):
+    p.print_usage()
+    print("Backup target '{}' must be a real directory".format(sourcefolder))
+    exit(3)
+
+if not sourcefolder.endswith(os.path.sep):
+    # Add a path separator
+    sourcefolder=sourcefolder+os.path.sep
+
+if os.path.isdir(backupfolder) and not args.dryrun:
+    print("Backup folder '{}' already exists; backup cancelled".format(
+      backupfolder
+    ))
+    exit(3)
+
+message('Backing up from {:s} to {:s}'.format(sourcefolder, destfolder))
+do_func('os.mkdir("{}")'.format(backupfolder))
+do_func('os.mkdir("{}")'.format(destfolder))
+do_func('os.mkdir("{}")'.format(os.path.join(backupfolder,'metadata')))
+checksums=None
+if not args.dryrun:
+    checksums=open(os.path.join(
+      backupfolder, 'metadata', 'checksums.sha256'
+    ),'w')
+
+sourcefolder=os.path.abspath(sourcefolder)
+if not sourcefolder.endswith(os.path.sep):
+    sourcefolder=sourcefolder+os.path.sep
+for f in os.walk(sourcefolder):
+    for d in f[1]:
+        transfer_dir(f[0],d)
+    for fi in f[2]:
+        transfer_file(f[0],fi,checksums)
+
+if checksums:
+  checksums.close()
+
+exit(xit)
