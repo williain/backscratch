@@ -1,0 +1,135 @@
+#!/usr/bin/env python
+
+from __future__ import print_function
+import os.path
+import sys
+
+def filterlog(log, matchstring):
+    return [l for l in log if l.find(matchstring) != -1]
+
+def matchlog(log, linematches):
+    nonmatches=""
+    line=0
+    for l in log:
+        line+=1
+        match=linematches.pop(0)
+        if l.find(match) == -1:
+            nonmatches+='Line {}: {} not in {}'.format(line,match,l)
+    if nonmatches != "": return nonmatches
+    return None
+
+def matchend(log, linematches):
+    nonmatches=''
+    line=len(log)
+    log.reverse()
+    for l in log[:len(linematches)]:
+        match=linematches.pop()
+        if l.find(match) == -1:
+            nonmatches='Line {}: {} not in {}'.format(line,match,l)+nonmatches
+        line-=1
+    if nonmatches != "": return nonmatches
+    return None
+
+# -------------------------------------------------------------------------
+d=os.path.dirname(__file__)
+os.sys.path.append(os.path.join(d,'test'))
+import inittest
+inittest.makelinks()
+c=os.path.abspath(os.path.join(d,'backup_full'))+' -fvn '+os.path.join(d,'test','data/')+' foo'
+print('Running',c)
+p=os.popen(c)
+log=p.read()
+p.close()
+log=log.split('\n')
+failcount=0
+
+# -------------------------------------------------------------------------
+testlog=filterlog(log,'invalidtarget.link can\'t be backed up')
+if len(testlog)!=1:
+    print("FAIL: Invalid link test;\nexpected one line matching \"invalidtarget.link can't be backed up\ngot:",testlog)
+    failcount+=1
+
+testlog=filterlog(log,'os.mkdir')
+matches=[
+  '/test")',
+  '/test/data")',
+  '/test/data/dirtarget")'
+]
+badmatch=matchend(testlog,matches)
+if badmatch:
+    print("FAIL: mkdir test;\n",badmatch)
+    failcount+=1
+
+testlog=filterlog(log,'os.chown')
+if len(testlog)!=3:
+    print("FAIL: chown test;\nexpected: 3 lines, got: {} lines".format(len(testlog)))
+    failcount+=1
+
+testlog=filterlog(log,'os.chmod')
+if len(testlog)!=3:
+    print("FAIL: chmod test;\nexpected: 3 lines, got: {} lines".format(len(testlog)))
+    failcount+=1
+
+testlog=filterlog(log,'os.lchown')
+if len(testlog)!=5:
+    print("FAIL: lchown test;\nexpected: 5 lines, got: {} lines".format(len(testlog)))
+    failcount+=1
+
+testlog=filterlog(log,'(symlink)')
+matches=[
+  'absoldir.link (symlink)',
+  'reldir.link (symlink)',
+  'relative.link (symlink)',
+  'badtarget.link (symlink)',
+  'absolute.link (symlink)'
+]
+badmatch=matchlog(testlog,matches)
+if badmatch:
+    print("FAIL: (symlink) test;\n",badmatch)
+    failcount+=1
+
+testlog=filterlog(log,'os.symlink')
+matches=[
+  'absoldir.link")',
+  'reldir.link")',
+  'relative.link")',
+  'badtarget.link")',
+  'absolute.link")'
+]
+badmatch=matchlog(testlog,matches)
+if badmatch:
+    print("FAIL: symlink test;\n",badmatch)
+    failcount+=1
+
+testlog=filterlog(log,'(dir)')
+badmatch=matchlog(testlog,['dirtarget (dir)',])
+if badmatch:
+    print("FAIL: dir test;\n",badmatch)
+    failcount+=1
+
+testlog=filterlog(log,'data/target ')+filterlog(log,'data/dirtarget/dirfile ')
+if len(testlog)!=2:
+    print("FAIL: file test;\nexpected: 2 line, got: {} lines".format(len(testlog)))
+    failcount+=1
+
+# -------------------------------------------------------------------------
+if failcount:
+    if failcount==1:
+        print('1 test failed')
+    else:
+        print(failcount,'tests failed')
+    print('FAILURE')
+    if os.path.exists(os.path.join(d,'fnruntest.log')):
+        if not os.path.isfile(os.path.join(d,'fnruntest.log')):
+            print('Could not overtwrite fnruntest.log - please clear it out to see the log')
+        else:
+            os.remove(os.path.join(d,'fnruntest.log'))
+    if not os.path.exists(os.path.join(d,'fnruntest.log')):
+        o=open(os.path.join(d,'fnruntest.log'), 'w')
+        for l in log:
+            o.write(l)
+            o.write('\n')
+        o.close()
+        print('Written -fn test log to',os.path.join(d,'fnruntest.log'))
+else:
+    print('ok')

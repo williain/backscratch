@@ -57,21 +57,13 @@ def make_link(source, dest):
         if args.verbose: message('{} (symlink)'.format(dest))
 
 def transfer_file(root,f,checksums=None):
-    if not root.startswith(sourcefolder):
-        raise RuntimeError(
-          'transfer_file: expected {} to begin with {}'.format(
-            root, sourcefolder
-          )
-        )
-    else:
-        root=root[len(sourcefolder):]
-    source=os.path.join(sourcefolder, root, f)
-    time_s=time.time()
+    source=os.path.join(root, f)
+    dest=os.path.join(destfolder+root, f)
     st=os.lstat(source)
-    dest=os.path.join(destfolder, root, f)
     if stat.S_ISLNK(st.st_mode):
         make_link(source,dest)
     else:
+        time_s=time.time()
         infile=open(source,'rb')
         outfile=None
         if not args.dryrun:
@@ -79,9 +71,10 @@ def transfer_file(root,f,checksums=None):
         h=hashlib.sha256()
         for data in infile.read(0x10000).decode(encoding='Latin1'):
             # 64k blocks
-            h.update(data.encode(encoding='Latin1'))
+            data=data.encode(encoding='Latin1')
+            h.update(data)
             if outfile:
-                outfile.write(data.encode(encoding='Latin1'))
+                outfile.write(data)
         if outfile:
             outfile.close()
         infile.close()
@@ -109,16 +102,8 @@ def transfer_file(root,f,checksums=None):
             print('{}  {}'.format(h.hexdigest(), source))
 
 def transfer_dir(root,d):
-    if not root.startswith(sourcefolder):
-        raise RuntimeError(
-          'transfer_dir: expected {} to begin with {}'.format(
-            root, sourcefolder
-          )
-        )
-    else:
-        root=root[len(sourcefolder):]
-    source=os.path.join(sourcefolder, root,d)
-    dest=os.path.join(destfolder, root, d)
+    source=os.path.join(root, d)
+    dest=os.path.join(destfolder+root, d)
     st=os.lstat(source)
     if stat.S_ISLNK(st.st_mode):
         make_link(source,dest)
@@ -132,6 +117,7 @@ def transfer_dir(root,d):
         ))
         if args.verbose: message('{} (dir)'.format(dest))
 
+# -------------------------------------------------------------------------
 
 p=argparse.ArgumentParser(
   description="Backup specified folder to a mounted volume",
@@ -191,7 +177,6 @@ if os.path.isdir(backupfolder) and not args.dryrun:
 
 message('Backing up from {:s} to {:s}'.format(sourcefolder, destfolder))
 do_func('os.mkdir("{}")'.format(backupfolder))
-do_func('os.mkdir("{}")'.format(destfolder))
 do_func('os.mkdir("{}")'.format(os.path.join(backupfolder,'metadata')))
 checksums=None
 if not args.dryrun:
@@ -202,6 +187,14 @@ if not args.dryrun:
 sourcefolder=os.path.abspath(sourcefolder)
 if not sourcefolder.endswith(os.path.sep):
     sourcefolder=sourcefolder+os.path.sep
+
+p=destfolder
+do_func('os.mkdir("{}")'.format(p))
+for d in sourcefolder.split(os.path.sep):
+    if d!='':
+        p=os.path.join(p,d)
+        do_func('os.mkdir("{}")'.format(p))
+
 for f in os.walk(sourcefolder):
     for d in f[1]:
         transfer_dir(f[0],d)

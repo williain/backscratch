@@ -2,7 +2,7 @@
 # Works on python2 or 3
 from __future__ import print_function
 import os.path
-testfolder=os.path.join(os.path.dirname(os.path.abspath(__file__)),'test')
+testfolder=os.path.join(os.path.dirname(os.path.abspath(__file__)),'data')
 
 def makeabsollink(linkfile, target):
     if os.path.exists(os.path.join(testfolder,linkfile)):
@@ -21,5 +21,7 @@ def makeabsollink(linkfile, target):
           os.path.join(testfolder, target),
           os.path.join(testfolder, linkfile)
         )
-makeabsollink('absolute.link','target')
-makeabsollink('absoldir.link','dirtarget/')
+
+def makelinks():
+    makeabsollink('absolute.link','target')
+    makeabsollink('absoldir.link','dirtarget/')

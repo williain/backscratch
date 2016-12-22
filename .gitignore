@@ -1,3 +1,5 @@
-test/absolute.link
-test/absoldir.link
+test/data/absolute.link
+test/data/absoldir.link
+fnruntest.log
 .*.swp
+__pycache__
