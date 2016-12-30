@@ -46,8 +46,7 @@ def make_link(source, dest):
     else:
         #Rewrite absolute paths
         if not relative:
-            newtarget=os.path.join(destfolder,longtarget[len(sourcefolder):])
-            #NOTE This will eliminate any .. folders in absolute paths - okay?
+            newtarget=os.path.join(destfolder,longtarget[1:])
         else:
             newtarget=target
         #Actually make the links!
@@ -175,7 +174,7 @@ if os.path.isdir(backupfolder) and not args.dryrun:
     ))
     exit(3)
 
-message('Backing up from {:s} to {:s}'.format(sourcefolder, destfolder))
+message('Backing up from {:s} to {:s}'.format(sourcefolder, backupfolder))
 do_func('os.mkdir("{}")'.format(backupfolder))
 do_func('os.mkdir("{}")'.format(os.path.join(backupfolder,'metadata')))
 checksums=None

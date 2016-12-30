@@ -4,132 +4,238 @@ from __future__ import print_function
 import os.path
 import sys
 
+# Constants ---------------------------------------------------------------
+
+tmppath='/dev/shm/'
+
+# Functions ---------------------------------------------------------------
+
 def filterlog(log, matchstring):
     return [l for l in log if l.find(matchstring) != -1]
 
 def matchlog(log, linematches):
-    nonmatches=""
+    r=""
     line=0
-    for l in log:
-        line+=1
-        match=linematches.pop(0)
-        if l.find(match) == -1:
-            nonmatches+='Line {}: {} not in {}'.format(line,match,l)
-    if nonmatches != "": return nonmatches
-    return None
+    while line<len(log):
+        match=0
+        matches=len(linematches)
+        while match<len(linematches):
+            if log[line].find(linematches[match]) != -1:
+                linematches.pop(match)
+                log.pop(line)
+                break
+            match=match+1
+        if len(linematches)==matches:
+            r+="Line not matched in log: "+l+"\n"
+            line=line+1
+    if len(linematches) > 0:
+        for m in linematches: r+="Match not found in log:"+m+"\n"
+    if r=="": return None
+    else: return r
 
 def matchend(log, linematches):
-    nonmatches=''
-    line=len(log)
-    log.reverse()
-    for l in log[:len(linematches)]:
-        match=linematches.pop()
-        if l.find(match) == -1:
-            nonmatches='Line {}: {} not in {}'.format(line,match,l)+nonmatches
-        line-=1
-    if nonmatches != "": return nonmatches
-    return None
+    l=log[len(log)-len(linematches):]
+    l.reverse()
+    return matchlog(l, linematches)
 
-# -------------------------------------------------------------------------
+def writelog(log, filename, endreport):
+    if os.path.exists(os.path.join(d,filename)):
+        if not os.path.isfile(os.path.join(d,filename)):
+            endreport+='Could not overwrite {} - please clear it out to see the log\n'.format(filename)
+        else:
+            os.remove(os.path.join(d,filename))
+    if not os.path.exists(os.path.join(d,filename)):
+        o=open(os.path.join(d,filename), 'w')
+        for l in log:
+            o.write(l)
+            o.write('\n')
+        o.close()
+        endreport+='Written test log to '+os.path.join(d,filename)+'\n'
+    return endreport
+
+# Setup -------------------------------------------------------------------
 d=os.path.dirname(__file__)
 os.sys.path.append(os.path.join(d,'test'))
 import inittest
 inittest.makelinks()
+failcount=0
+endreport='------------------\n'
+
+# Initialise -fn test -----------------------------------------------------
 c=os.path.abspath(os.path.join(d,'backup_full'))+' -fvn '+os.path.join(d,'test','data/')+' foo'
 print('Running',c)
 p=os.popen(c)
 log=p.read()
-p.close()
+error=p.close()
 log=log.split('\n')
-failcount=0
+if error:
+    endreport=writelog(log, 'fruntest.log', endreport)
+    if len(log)<3:
+        print('\n'.join(log))
+    raise(Exception('Test process failed'))
 
-# -------------------------------------------------------------------------
-testlog=filterlog(log,'invalidtarget.link can\'t be backed up')
-if len(testlog)!=1:
-    print("FAIL: Invalid link test;\nexpected one line matching \"invalidtarget.link can't be backed up\ngot:",testlog)
-    failcount+=1
+# Run -fn test ------------------------------------------------------------
+try:
+    testlog=filterlog(log,'invalidtarget.link can\'t be backed up')
+    if len(testlog)!=1:
+        print("FAIL: Invalid link test;\nexpected one line matching \"invalidtarget.link can't be backed up\ngot:",testlog)
+        failcount+=1
 
-testlog=filterlog(log,'os.mkdir')
-matches=[
-  '/test")',
-  '/test/data")',
-  '/test/data/dirtarget")'
-]
-badmatch=matchend(testlog,matches)
-if badmatch:
-    print("FAIL: mkdir test;\n",badmatch)
-    failcount+=1
+    testlog=filterlog(log,'os.mkdir')
+    matches=[
+      '/test")',
+      '/test/data")',
+      '/test/data/dirtarget")'
+    ]
+    badmatch=matchend(testlog,matches)
+    if badmatch:
+        print("FAIL: mkdir test;\n"+badmatch)
+        failcount+=1
 
-testlog=filterlog(log,'os.chown')
-if len(testlog)!=3:
-    print("FAIL: chown test;\nexpected: 3 lines, got: {} lines".format(len(testlog)))
-    failcount+=1
+    testlog=filterlog(log,'os.chown')
+    if len(testlog)!=3:
+        print("FAIL: chown test;\nexpected: 3 lines, got: {} lines".format(len(testlog)))
+        failcount+=1
 
-testlog=filterlog(log,'os.chmod')
-if len(testlog)!=3:
-    print("FAIL: chmod test;\nexpected: 3 lines, got: {} lines".format(len(testlog)))
-    failcount+=1
+    testlog=filterlog(log,'os.chmod')
+    if len(testlog)!=3:
+        print("FAIL: chmod test;\nexpected: 3 lines, got: {} lines".format(len(testlog)))
+        failcount+=1
 
-testlog=filterlog(log,'os.lchown')
-if len(testlog)!=5:
-    print("FAIL: lchown test;\nexpected: 5 lines, got: {} lines".format(len(testlog)))
-    failcount+=1
+    testlog=filterlog(log,'os.lchown')
+    if len(testlog)!=5:
+        print("FAIL: lchown test;\nexpected: 5 lines, got: {} lines".format(len(testlog)))
+        failcount+=1
 
-testlog=filterlog(log,'(symlink)')
-matches=[
-  'absoldir.link (symlink)',
-  'reldir.link (symlink)',
-  'relative.link (symlink)',
-  'badtarget.link (symlink)',
-  'absolute.link (symlink)'
-]
-badmatch=matchlog(testlog,matches)
-if badmatch:
-    print("FAIL: (symlink) test;\n",badmatch)
-    failcount+=1
+    testlog=filterlog(log,'(symlink)')
+    matches=[
+      'absoldir.link (symlink)',
+      'reldir.link (symlink)',
+      'relative.link (symlink)',
+      'badtarget.link (symlink)',
+      'absolute.link (symlink)'
+    ]
+    badmatch=matchlog(testlog,matches)
+    if badmatch:
+        print("FAIL: (symlink) test:\n"+badmatch)
+        failcount+=1
 
-testlog=filterlog(log,'os.symlink')
-matches=[
-  'absoldir.link")',
-  'reldir.link")',
-  'relative.link")',
-  'badtarget.link")',
-  'absolute.link")'
-]
-badmatch=matchlog(testlog,matches)
-if badmatch:
-    print("FAIL: symlink test;\n",badmatch)
-    failcount+=1
+    testlog=filterlog(log,'os.symlink')
+    matches=[
+      'absoldir.link")',
+      'reldir.link")',
+      'relative.link")',
+      'badtarget.link")',
+      'absolute.link")'
+    ]
+    badmatch=matchlog(testlog,matches)
+    if badmatch:
+        print("FAIL: symlink test:\n"+badmatch)
+        failcount+=1
 
-testlog=filterlog(log,'(dir)')
-badmatch=matchlog(testlog,['dirtarget (dir)',])
-if badmatch:
-    print("FAIL: dir test;\n",badmatch)
-    failcount+=1
+    testlog=filterlog(log,'(dir)')
+    badmatch=matchlog(testlog,['dirtarget (dir)',])
+    if badmatch:
+        print("FAIL: dir test:\n"+badmatch)
+        failcount+=1
 
-testlog=filterlog(log,'data/target ')+filterlog(log,'data/dirtarget/dirfile ')
-if len(testlog)!=2:
-    print("FAIL: file test;\nexpected: 2 line, got: {} lines".format(len(testlog)))
-    failcount+=1
+    testlog=filterlog(log,'data/target ')+filterlog(log,'data/dirtarget/dirfile ')
+    if len(testlog)!=2:
+        print("FAIL: file test;\nexpected: 2 line, got: {} lines".format(len(testlog)))
+        failcount+=1
+except Exception as e:
+    endreport=writelog(log,'fnruntest.log',endreport)
+    raise(e)
 
-# -------------------------------------------------------------------------
+if failcount>0:
+    endreport=writelog(log,'fnruntest.log',endreport)
+
+# Initialise -f test -----------------------------------------------------
+o=os.path.join(tmppath,'backscratch_test')
+if not os.path.isdir(o):
+    os.mkdir(o)
+for e in os.listdir(o):
+    if os.path.isfile(os.path.join(o,e)):
+        os.remove(os.path.join(o,e))
+    if os.path.isdir(os.path.join(o,e)):
+        for (path, dirs, files) in os.walk(os.path.join(o,e),topdown=False,followlinks = True):
+            for f in files:
+                os.remove(os.path.join(path,f))
+            for di in dirs:
+                if os.path.islink(os.path.join(path,di)):
+                    os.remove(os.path.join(path,di))
+                else:
+                    os.rmdir(os.path.join(path,di))
+        os.rmdir(os.path.join(o,e))
+
+c=os.path.abspath(os.path.join(d,'backup_full'))+' -fv --mount_point '+o+' '+os.path.join(d,'test','data/')+' foo'
+print('Running',c)
+p=os.popen(c)
+log=p.read()
+error=p.close()
+log=log.split('\n')
+initfailcount=failcount
+if error:
+    endreport=writelog(log, 'fruntest.log', endreport)
+    if len(log)<3:
+        print('\n'.join(log))
+    raise(Exception('Test process failed'))
+
+# Run -f test -------------------------------------------------------------
+
+b=log[0].split(' ')[-1] # Backup 'to' path
+
+try:
+    # Test checksum file
+    c=open(os.path.join(b,'metadata','checksums.sha256'))
+    ch=c.readlines()
+    c.close()
+    if len(ch) != 2:
+        print("FAIL: checksum test;\nexpected: 2 lines, got: {} lines".format(len(ch)))
+        failcount+=1
+
+    # Test backed up files
+    #for (path, dirs, files) in os.walk(os.path.join(b,'data',os.path.abspath(d),'test','data')):
+    for (path, dirs, files) in os.walk(os.path.join(d,'test','data')):
+        for di in dirs:
+            target=os.path.join(b,'data',os.path.abspath(path)[1:],di)
+            if os.path.islink(os.path.join(path,di)):
+                if not os.path.islink(target):
+                    print('FAIL: files test; link dir fail;',di)
+                    failcount+=1
+            else:
+                if not os.path.isdir(target):
+                    print('FAIL: files test; dir fail;',di)
+                    failcount+=1
+        for fil in files:
+            target=os.path.join(b,'data',os.path.abspath(path)[1:],fil)
+            if os.path.islink(os.path.join(path,fil)):
+                if fil == 'invalidtarget.link':
+                    if os.path.exists(target):
+                        print('FAIL: files test; invalidtarget link fail')
+                        failcount+=1
+                elif not os.path.islink(target):
+                    print('FAIL: files test; link file fail;',fil)
+                    failcount+=1
+            else:
+                if not os.path.isfile(target):
+                    print('FAIL: files test; file fail;',fil)
+                    failcount+=1
+
+except Exception as e:
+    endreport=writelog(log,'fruntest.log',endreport)
+    raise(e)
+
+if failcount>initfailcount:
+    endreport=writelog(log,'fruntest.log',endreport)
+
+# Report ------------------------------------------------------------------
 if failcount:
     if failcount==1:
         print('1 test failed')
     else:
         print(failcount,'tests failed')
     print('FAILURE')
-    if os.path.exists(os.path.join(d,'fnruntest.log')):
-        if not os.path.isfile(os.path.join(d,'fnruntest.log')):
-            print('Could not overtwrite fnruntest.log - please clear it out to see the log')
-        else:
-            os.remove(os.path.join(d,'fnruntest.log'))
-    if not os.path.exists(os.path.join(d,'fnruntest.log')):
-        o=open(os.path.join(d,'fnruntest.log'), 'w')
-        for l in log:
-            o.write(l)
-            o.write('\n')
-        o.close()
-        print('Written -fn test log to',os.path.join(d,'fnruntest.log'))
+    print(endreport)
 else:
     print('ok')

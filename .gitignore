@@ -1,5 +1,6 @@
 test/data/absolute.link
 test/data/absoldir.link
+fruntest.log
 fnruntest.log
 .*.swp
 __pycache__

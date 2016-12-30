@@ -16,7 +16,7 @@ def makeabsollink(linkfile, target):
               curr_target, os.path.join(testfolder,target)
             ))
             os.unlink(os.path.join(testfolder, linkfile))
-    if not os.path.exists(os.path.join(testfolder, linkfile)):
+    if not os.path.islink(os.path.join(testfolder, linkfile)):
         os.symlink(
           os.path.join(testfolder, target),
           os.path.join(testfolder, linkfile)
