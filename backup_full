@@ -17,7 +17,7 @@ def do_func(func_str):
     else:
         message(func_str)
 
-def make_link(source, dest):
+def make_link(source, dest, checksums):
     p=os.popen('readlink '+source)
     target=p.read().strip()
     p.close()
@@ -54,13 +54,15 @@ def make_link(source, dest):
         st=os.lstat(source)
         do_func('os.lchown("{}",{},{})'.format(dest,st.st_uid,st.st_gid))
         if args.verbose: message('{} (symlink)'.format(dest))
+        if checksums:
+            checksums.write('symlink:{}  {}\n'.format(newtarget,source))
 
 def transfer_file(root,f,checksums=None):
     source=os.path.join(root, f)
     dest=os.path.join(destfolder+root, f)
     st=os.lstat(source)
     if stat.S_ISLNK(st.st_mode):
-        make_link(source,dest)
+        make_link(source,dest,checksums)
     else:
         time_s=time.time()
         infile=open(source,'rb')
@@ -100,12 +102,12 @@ def transfer_file(root,f,checksums=None):
         if args.verbose>=2:
             print('{}  {}'.format(h.hexdigest(), source))
 
-def transfer_dir(root,d):
+def transfer_dir(root,d,checksums=None):
     source=os.path.join(root, d)
     dest=os.path.join(destfolder+root, d)
     st=os.lstat(source)
     if stat.S_ISLNK(st.st_mode):
-        make_link(source,dest)
+        make_link(source,dest,checksums)
     else:
         do_func('os.mkdir("{}")'.format(dest))
         do_func('os.chmod("{}",{})'.format(
@@ -115,6 +117,7 @@ def transfer_dir(root,d):
           dest, st.st_uid, st.st_gid
         ))
         if args.verbose: message('{} (dir)'.format(dest))
+        if checksums: checksums.write('dir  {}\n'.format(source))
 
 # -------------------------------------------------------------------------
 
@@ -196,7 +199,7 @@ for d in sourcefolder.split(os.path.sep):
 
 for f in os.walk(sourcefolder):
     for d in f[1]:
-        transfer_dir(f[0],d)
+        transfer_dir(f[0],d,checksums)
     for fi in f[2]:
         transfer_file(f[0],fi,checksums)
 

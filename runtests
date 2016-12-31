@@ -141,7 +141,7 @@ try:
 
     testlog=filterlog(log,'data/target ')+filterlog(log,'data/dirtarget/dirfile ')
     if len(testlog)!=2:
-        print("FAIL: file test;\nexpected: 2 line, got: {} lines".format(len(testlog)))
+        print("FAIL: file test;\nexpected: 2 lines, got: {} lines".format(len(testlog)))
         failcount+=1
 except Exception as e:
     endreport=writelog(log,'fnruntest.log',endreport)
@@ -190,8 +190,16 @@ try:
     c=open(os.path.join(b,'metadata','checksums.sha256'))
     ch=c.readlines()
     c.close()
-    if len(ch) != 2:
-        print("FAIL: checksum test;\nexpected: 2 lines, got: {} lines".format(len(ch)))
+    sl=len(filterlog(ch,'symlink:'))
+    if sl != 5:
+        print("FAIL: checksum link test;\nexpected: 5 lines, got: {} lines".format(sl))
+        failcount+=1
+    di=len(filterlog(ch,'dir  '))
+    if di != 1:
+        print("FAIL: checksum dir test;\nexpected: 1 line, got: {} lines".format(di))
+        failcount+=1
+    if len(ch)-sl-di != 2:
+        print("FAIL: checksum file test;\nexpected: 2 lines, got: {} lines".format(len(ch)-sl-di))
         failcount+=1
 
     # Test backed up files
