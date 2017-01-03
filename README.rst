@@ -15,9 +15,9 @@ specified).  The default mount point is '/mnt' (which is where I mount
 my external hard discs), but this can be changed (see the
 --mount-point option):
 
-==========================   ======
+=========================    ======
 Options:
------------------------------------
+-------------------------    ------
 --verbose, -v                List files as they're backed up. With -vv
                              also print ssh hashes.
 
@@ -32,7 +32,7 @@ Options:
 
 --force, -f                  Demote fatal errors about bad links to
                              warnings, and continue backup.
-==========================   ======
+=========================    ======
 
 Exit codes:
 
