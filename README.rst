@@ -17,7 +17,7 @@ my external hard discs), but this can be changed (see the
 
 +---------------------------+---------------------------------------------+
 | Options:                                                                |
-+---------------------------+---------------------------------------------+
++===========================+=============================================+
 | --verbose, -v             | List files as they're backed up. With -vv   |
 |                           | also print ssh hashes.                      |
 +---------------------------+---------------------------------------------+
@@ -31,7 +31,7 @@ my external hard discs), but this can be changed (see the
 |                           | to /mnt                                     |
 +---------------------------+---------------------------------------------+
 | --force, -f               | Demote fatal errors about bad links to      |
-|                           |  warnings, and continue backup.             |
+|                           | warnings, and continue backup.              |
 +---------------------------+---------------------------------------------+
 
 Exit codes:
