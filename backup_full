@@ -26,7 +26,7 @@ def read_link(linkpath):
     out=po.read()
     if po.close():
         print('ERROR: Error calling readlink on {}: {}'.format(linkpath, out))
-        exit(4)
+        exit(5)
     return out.strip()
 
 def make_link(source, dest, checksums):
@@ -305,13 +305,13 @@ if incr:
                     o=po.read()
                     if po.close():
                         print('Error calling sha256sum:',o)
-                        exit(4)
+                        exit(5)
                     (n,_,_)=o.partition('  ')
                     if len(n)!=256//4:
                         print('{}: Error decoding sha256sum results:'.format(
                           fil
                         )+ o)
-                        exit(4)
+                        exit(5)
                     else:
                         if n!=c:
                             messagev(1, '{}: Changed checksum {};'.format(
