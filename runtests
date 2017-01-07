@@ -62,7 +62,7 @@ failcount=0
 endreport='------------------\n'
 
 # Initialise -fn test -----------------------------------------------------
-c=os.path.abspath(os.path.join(d,'backup_full'))+' -fvn '+os.path.join(d,'test','data/')+' foo'
+c=os.path.abspath(os.path.join(d,'backup_full'))+' -fnv --debug '+os.path.join(d,'test','data/')+' foo'
 print('Running',c)
 p=os.popen(c)
 log=p.read()
@@ -168,7 +168,7 @@ for e in os.listdir(o):
                     os.rmdir(os.path.join(path,di))
         os.rmdir(os.path.join(o,e))
 
-c=os.path.abspath(os.path.join(d,'backup_full'))+' -fv --mount_point '+o+' '+os.path.join(d,'test','data/')+' foo'
+c=os.path.abspath(os.path.join(d,'backup_full'))+' -f --debug --mount_point '+o+' '+os.path.join(d,'test','data/')+' foo'
 print('Running',c)
 p=os.popen(c)
 log=p.read()
@@ -190,6 +190,13 @@ try:
     c=open(os.path.join(b,'metadata','checksums.sha256'))
     ch=c.readlines()
     c.close()
+    vl=0
+    if ch[0].startswith('Checksums format:'):
+        vl=1
+    else:
+        print("FAIL: checksum version test;\ngot: {}".format(ch[0]))
+        failcount+=1
+
     sl=len(filterlog(ch,'symlink:'))
     if sl != 5:
         print("FAIL: checksum link test;\nexpected: 5 lines, got: {} lines".format(sl))
@@ -198,7 +205,7 @@ try:
     if di != 1:
         print("FAIL: checksum dir test;\nexpected: 1 line, got: {} lines".format(di))
         failcount+=1
-    if len(ch)-sl-di != 2:
+    if len(ch)-sl-di-vl != 2:
         print("FAIL: checksum file test;\nexpected: 2 lines, got: {} lines".format(len(ch)-sl-di))
         failcount+=1
 

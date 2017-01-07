@@ -16,7 +16,7 @@ my external hard discs), but this can be changed (see the
 --mount-point option):
 
 +---------------------------+---------------------------------------------+
-| Options:                                                                |
+| Options:                  |                                             |
 +===========================+=============================================+
 | --verbose, -v             | List files as they're backed up. With -vv   |
 |                           | also print ssh hashes.                      |

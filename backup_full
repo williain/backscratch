@@ -7,18 +7,42 @@ import hashlib
 import stat
 import time
 
-def message(msg):
-    if not args.quiet:
-        print(msg)
+version=2 # Checksums file version
 
-def messagev(v, msg):
-    if args.verbose>=v:
-        message(msg)
+def message(*msg):
+    if not args.quiet:
+        print(' '.join(msg))
+
+def messagev(v, *msg):
+    if args.verbose and args.verbose>=v:
+        message(*msg)
+
+def messageveq(v, *msg):
+    if args.verbose and args.verbose==v:
+        message(*msg)
+
+def read_checksum(line):
+    l=line.strip('\n')
+
+    if l.startswith('symlink:'):
+        (target, _, source)=l[len('symlink:'):].partition('  ')
+        incr[source]='s:'+target
+    elif l.startswith('dir  '):
+        incr[l[len('dir  '):]]='d'
+    else:
+        (checksum, _, source)=l.partition('  ')
+        if len(checksum) != 256//4:
+            message(
+               'Checksum file entry for {}'.format(source)+
+               ' is the wrong number of bits; forcing re-backup'
+            )
+        else:
+            incr[source]='c:'+checksum
 
 def do_func(func_str):
     if not args.dryrun:
         exec(func_str)
-    else:
+    elif args.debug:
         message(func_str)
 
 def read_link(linkpath):
@@ -45,7 +69,7 @@ def make_link(source, dest, checksums):
           sig='WARNING'
         else:
           sig='ERROR'
-        message("{}: Link ".format(sig)+
+        message("{}: Link".format(sig),
           "{} can't be backed up; target {} outside of backup space {}".format(
             source, target, sourcefolder
         ))
@@ -67,15 +91,14 @@ def make_link(source, dest, checksums):
         if checksums:
             checksums.write('symlink:{}  {}\n'.format(target,source))
 
-def transfer_file(root,f,checksums=None):
-    source=os.path.join(root, f)
-    dest=os.path.join(destfolder+root, f)
-    st=os.lstat(source)
+def transfer_file(f, checksums=None):
+    dest=destfolder+f
+    st=os.lstat(f)
     if stat.S_ISLNK(st.st_mode):
-        make_link(source,dest,checksums)
+        make_link(f,dest,checksums)
     else:
         time_s=time.time()
-        infile=open(source,'rb')
+        infile=open(f,'rb')
         outfile=None
         if not args.dryrun:
             outfile=open(dest,'wb')
@@ -98,25 +121,24 @@ def transfer_file(root,f,checksums=None):
             if speed>2**10:
                 if speed>2**20:
                     if speed>2**30:
-                        speed=str(speed/2**30)+'Gi'
+                        speed="{:.2f}Gi".format(speed/2**30)
                     else:
-                        speed=str(speed/2**20)+'Mi'
+                        speed="{:.2f}Mi".format(speed/2**20)
                 else:
-                    speed=str(speed/2**10)+'Ki'
+                    speed="{:.2f}Ki".format(speed/2**10)
             else:
-                speed=str(speed)
+                speed="{:.2f}".format(speed)
             message('{} {}B/s'.format(dest, speed))
 
         if checksums:
-            checksums.write('{}  {}\n'.format(h.hexdigest(), source))
-        messagev(2, '{}  {}'.format(h.hexdigest(), source))
+            checksums.write('{}  {}\n'.format(h.hexdigest(), f))
+        messagev(2, '{}  {}'.format(h.hexdigest(), f))
 
-def transfer_dir(root,d,checksums=None):
-    source=os.path.join(root, d)
-    dest=os.path.join(destfolder+root, d)
-    st=os.lstat(source)
+def transfer_dir(di,checksums=None):
+    dest=destfolder+di
+    st=os.lstat(di)
     if stat.S_ISLNK(st.st_mode):
-        make_link(source,dest,checksums)
+        make_link(di, dest, checksums)
     else:
         do_func('os.mkdir("{}")'.format(dest))
         do_func('os.chmod("{}",{})'.format(
@@ -126,7 +148,129 @@ def transfer_dir(root,d,checksums=None):
           dest, st.st_uid, st.st_gid
         ))
         messagev(1, '{} (dir)'.format(dest))
-        if checksums: checksums.write('dir  {}\n'.format(source))
+        if checksums: checksums.write('dir  {}\n'.format(di))
+
+def compare_checksum(fil, checksum):
+    po=os.popen('sha256sum "'+fil+'"')
+    o=po.read()
+    if po.close():
+        print('Error calling sha256sum:',o)
+        exit(5)
+    (n,_,_)=o.partition('  ')
+    if len(n)!=256//4:
+        print('{}: Error decoding sha256sum results:'.format(
+          fil
+        )+ o)
+        exit(5)
+    if n!=checksum: return n
+
+def incremental(sourcefolder, checksums):
+    for (p, ds, fis) in os.walk(sourcefolder):
+        for d in ds:
+            di=os.path.join(p, d)
+            done=False
+            if di in incr.keys():
+                c=incr[di]
+                (t,_,v)=c.partition(':')
+                if os.path.islink(di):
+                    now='symlink dir'
+                else:
+                    now='directory'
+            else:
+                messagev(1, '{}: new directory'.format(di))
+                transfer_dir(di, checksums)
+                done=True
+
+            if not done and t == 'd':
+                was='directory'
+                if now=='directory':
+                    if checksums:
+                        checksums.write('dir  {}\n'.format(di))
+                    done=True
+            elif not done and t == 'c':
+                was='file'
+            elif not done and t == 's':
+                was='symlink dir' # Guess
+                if now=='symlink dir':
+                    target=read_link(di)
+                    if v != target:
+                        messageveq(1, '{}:'.format(di),
+                          'Changed symlink dir target'
+                        )
+                        messagev(2, '{}: Changed symlink dir'.format(di),
+                          'target; was {};'.format(v),
+                          'now {}'.format(target)
+                        )
+                        make_link(di, destfolder+di, checksums)
+                    else:
+                        if checksums:
+                            checksums.write('symlink:{}  {}\n'.format(
+                              target, di
+                            ))
+                    done=True
+
+            if not done:
+                messagev(1, '{}: was {}; now {}'.format(di, was, now))
+                if now=='symlink dir':
+                    make_link(di, destfolder+di, checksums)
+                else:
+                    transfer_dir(di, checksums)
+        for fi in fis:
+            fil=os.path.join(p, fi)
+            done=False
+            if fil in incr.keys():
+                c=incr[fil]
+                (t,_,v)=c.partition(':')
+                if os.path.islink(fil):
+                    now='symlink'
+                else:
+                    now='file'
+            else:
+                messagev(1, '{}: New file'.format(fil))
+                transfer_file(fil, checksums)
+                done = True
+
+            if not done and t == 'c':
+                was='file'
+                if now == 'file':
+                    n=compare_checksum(fil, v)
+                    if n:
+                        messageveq(1, '{}: File changed')
+                        messagev(2, '{}: Changed checksum {};'.format(
+                          fil, n
+                        ), 'was {}'.format(v)
+                        )
+                        transfer_file(fil, checksums)
+                    else:
+                        if checksums:
+                            checksums.write('{}  {}\n'.format(v, fil))
+                    done=True
+            elif not done and t == 's':
+                was='symlink'
+                if now == 'symlink':
+                    target=read_link(fil)
+                    if v != target:
+                        messageveq(1, '{}: Changed symlink target'.format(fil))
+                        messagev(2, '{}: Changed symlink target; '.format(
+                          fil)+'was {}; '.format(c[len('s:'):]
+                        )+'now {}'.format(target)
+                        )
+                        make_link(fil, destfolder+fil, checksums)
+                    else:
+                        if checksums:
+                            checksums.write('symlink:{}  {}\n'.format(
+                              target, fil
+                            ))
+                    done=True
+            elif not done:
+                was='directory'
+
+            if not done:
+                messagev(1, '{}: Was {}; now {}'.format(fil, was, now))
+                if now == 'symlink':
+                    make_link(fil, destfolder+fil, checksums)
+                else:
+                    transfer_file(fil, checksums)
 
 # -------------------------------------------------------------------------
 
@@ -159,12 +303,12 @@ p.add_argument('--force', '-f', action='store_true',
 p.add_argument('--incremental', '-i', default=None,
   help='Create an incremental backup based on the specified previous backup'
 )
+p.add_argument('--debug', action='store_true', help='For testing purporses')
 args=p.parse_args()
 if args.quiet:
     args.verbose=0
-if args.dryrun:
-    if not args.verbose:
-        args.verbose=1
+if args.debug:
+    args.quiet=0
 
 xit=0
 machine_id=args.machine_id
@@ -207,23 +351,19 @@ if args.incremental:
         ))
         inc=open(incrpath,'r')
         incr={}
-        for l in inc.readlines():
-            l=l.strip('\n')
+        firstline=inc.readline().strip()
+        if firstline.startswith('Checksums format:'):
+            ver=int(firstline[len('Checksums format:'):])
+            if ver<version:
+                message('WARNING: The incremental comparison backup',
+                  'checksum file is version {}\nThis tool'.format(ver),
+                  'works best with version {} checksums'.format(version)
+                )
+        else:
+            read_checksums(firstline)
 
-            if l.startswith('symlink:'):
-                (target, _, source)=l[len('symlink:'):].partition('  ')
-                incr[source]='s:'+target
-            elif l.startswith('dir  '):
-                incr[l[len('dir  '):]]='d'
-            else:
-                (checksum, _, source)=l.partition('  ')
-                if len(checksum) != 256//4:
-                    message(
-                       'Checksum file entry for {}'.format(source)+
-                       ' is the wrong number of bits; forcing re-backup'
-                    )
-                else:
-                    incr[source]='c:'+checksum
+        for l in inc.readlines():
+            read_checksums(l)
         inc.close()
 else:
     message('Backing up from {:s} to {:s}'.format(sourcefolder, backupfolder))
@@ -236,6 +376,7 @@ if not args.dryrun:
     checksums=open(os.path.join(
       backupfolder, 'metadata', 'checksums.sha256'
     ),'w')
+    checksums.write('Checksums format:{:n}\n'.format(version))
 
 sourcefolder=os.path.abspath(sourcefolder)
 if not sourcefolder.endswith(os.path.sep):
@@ -249,107 +390,13 @@ for d in sourcefolder.split(os.path.sep):
         do_func('os.mkdir("{}")'.format(p))
 
 if incr:
-    for (p, ds, fis) in os.walk(sourcefolder):
-        for d in ds:
-            di=os.path.join(p, d)
-            if di in incr.keys():
-                c=incr[di]
-            else:
-                c=''
-
-            if c == '':
-                messagev(1, '{}: new directory'.format(di))
-                transfer_dir(p, d, checksums)
-            elif c == 'd':
-                if os.path.islink(di):
-                    messagev(1, '{}: was directory; '.format(di)+
-                      'now symlink dir'
-                    )
-                    transfer_dir(p, d, checksums)
-                # else is still a dir!
-            elif c.startswith('c:'):
-                if os.path.islink(di):
-                    messagev(1, '{}: was file; now symlink dir'.format(di))
-                else:
-                    messagev(1,'{}: was file; now directory'.format(di))
-                transfer_dir(p, d, checksums)
-            elif c.startswith('s:'):
-                if os.path.islink(di):
-                    target=read_link(di)
-                    if c[len('s:'):] != target:
-                        messagev(1, '{}: Changed symlink dir target; '.format(
-                          di) + 'was {} '.format(
-                          c[len('s:'):]) + 'now {}'.format(target)
-                        )
-                        transfer_dir(p, d, checksums)
-                else:
-                    messagev(1, '{}: was symlink; now directory'.format(di))
-                    transfer_dir(p, d, checksums)
-        for fi in fis:
-            fil=os.path.join(p, fi)
-            if fil in incr.keys():
-                c=incr[fil]
-            else:
-                c=""
-
-            if c=="":
-                messagev(1, '{}: New file'.format(fil))
-                transfer_file(p, fi, checksums)
-            elif c.startswith('c:'):
-                c=c[len('c:'):]
-                if os.path.islink(fil):
-                    messagev(1, '{}: Was file; is symlink'.format(fil))
-                    transfer_file(p, fi, checksums)
-                else:
-                    po=os.popen('sha256sum "'+fil+'"')
-                    o=po.read()
-                    if po.close():
-                        print('Error calling sha256sum:',o)
-                        exit(5)
-                    (n,_,_)=o.partition('  ')
-                    if len(n)!=256//4:
-                        print('{}: Error decoding sha256sum results:'.format(
-                          fil
-                        )+ o)
-                        exit(5)
-                    else:
-                        if n!=c:
-                            messagev(1, '{}: Changed checksum {};'.format(
-                              fil, n
-                            ), 'was {}'.format(c)
-                            )
-                            transfer_file(p, fi, checksums)
-                        else:
-                            if checksums:
-                                checksums.write('{}  {}\n'.format(
-                                  n, fil
-                                ))
-            elif c.startswith('s:'):
-                if os.path.islink(fil):
-                    target=read_link(fil)
-                    if c[len('s:'):] != target:
-                        messagev(1, '{}: Changed symlink target; '.format(
-                          fil
-                        )+'was {}; '.format(c[len('s:'):]
-                        )+'now {}'.format(target)
-                        )
-                        transfer_file(p, fi, checksums)
-                else:
-                    messagev(1, '{}: was symlink; now file'.format(fil))
-                    transfer_file(p, fi, checksums)
-            else:
-                # Was a dir
-                if os.path.islink(fil):
-                    messagev(1, '{}: Was directory; now symlink'.format(fil))
-                else:
-                    messagev(1, '{}: Was directory; now file'.format(fil))
-                transfer_file(p, fi, checksums)
+    incremental(sourcefolder, checksums)
 else:
     for f in os.walk(sourcefolder):
         for d in f[1]:
-            transfer_dir(f[0],d,checksums)
+            transfer_dir(os.path.join(f[0], d), checksums)
         for fi in f[2]:
-            transfer_file(f[0],fi,checksums)
+            transfer_file(os.path.join(f[0], fi), checksums)
 
 if checksums:
   checksums.close()
